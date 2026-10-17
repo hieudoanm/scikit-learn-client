@@ -1,0 +1,9 @@
+{
+  "name": "@skl/notebooks",
+  "version": "0.0.1",
+  "description": "skl - Notebooks",
+  "scripts": {
+    "lint": "make lint",
+    "format": "make format"
+  }
+}

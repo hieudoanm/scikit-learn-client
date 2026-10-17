@@ -1,0 +1,16 @@
+{
+  "name": "@skl/cli",
+  "version": "0.1.0",
+  "description": "scikit-learn-client CLI — train and export ONNX from a CSV",
+  "scripts": {
+    "dev": "make dev",
+    "test": "make test",
+    "test:coverage": "make coverage",
+    "lint": "make lint",
+    "format": "make format",
+    "install": "make install"
+  },
+  "bin": {
+    "skl": "src/skl_cli/__init__.py"
+  }
+}

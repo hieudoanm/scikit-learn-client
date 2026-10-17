@@ -1,0 +1,102 @@
+# Local, single-machine stack: PostgreSQL + FastAPI backend + Next.js frontend.
+#
+#   cp .env.example .env
+#   docker compose up --build
+#
+# Frontend: http://127.0.0.1:3000 · API docs: http://127.0.0.1:8000/docs
+# See docs/11-deployment/local-development.md.
+
+name: skl
+
+services:
+  postgres:
+    container_name: skl-postgres
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-skl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-skl}
+      POSTGRES_DB: ${POSTGRES_DB:-skl}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # PostgreSQL 18+ stores data in major-version subdirectories
+      # (/var/lib/postgresql/18/docker) and refuses to start when it finds a
+      # pre-18 cluster at /var/lib/postgresql/data, so mount the parent.
+      - skl_pg:/var/lib/postgresql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-skl} -d ${POSTGRES_DB:-skl}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    container_name: skl-backend
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-skl}:${POSTGRES_PASSWORD:-skl}@postgres:5432/${POSTGRES_DB:-skl}
+      SKL_DATA_DIR: /var/lib/skl
+      SKL_MAX_UPLOAD_MB: ${SKL_MAX_UPLOAD_MB:-10}
+      SKL_LOG_LEVEL: ${SKL_LOG_LEVEL:-INFO}
+      SKL_CORS_ORIGINS: ${SKL_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      SKL_CORS_ALLOW_CREDENTIALS: ${SKL_CORS_ALLOW_CREDENTIALS:-true}
+      SKL_ENABLE_INTERACTIVE_DOCS: ${SKL_ENABLE_INTERACTIVE_DOCS:-true}
+      SKL_MAX_CONCURRENT_JOBS: ${SKL_MAX_CONCURRENT_JOBS:-1}
+      SKL_JOB_TIMEOUT_SECONDS: ${SKL_JOB_TIMEOUT_SECONDS:-1800}
+      SKL_JOB_MAX_ATTEMPTS: ${SKL_JOB_MAX_ATTEMPTS:-2}
+      SKL_JOB_RETRY_BASE_SECONDS: ${SKL_JOB_RETRY_BASE_SECONDS:-2}
+      SKL_WORKER_STALE_SECONDS: ${SKL_WORKER_STALE_SECONDS:-3600}
+      SKL_RATE_LIMIT_ENABLED: ${SKL_RATE_LIMIT_ENABLED:-true}
+      SKL_RATE_LIMIT_MAX_REQUESTS: ${SKL_RATE_LIMIT_MAX_REQUESTS:-100}
+      SKL_RATE_LIMIT_WINDOW_SECONDS: ${SKL_RATE_LIMIT_WINDOW_SECONDS:-60}
+      SKL_COMPRESSION_ENABLED: ${SKL_COMPRESSION_ENABLED:-true}
+      SKL_COMPRESSION_MIN_SIZE: ${SKL_COMPRESSION_MIN_SIZE:-500}
+      SKL_REQUEST_TIMEOUT_SECONDS: ${SKL_REQUEST_TIMEOUT_SECONDS:-30}
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - skl_data:/var/lib/skl
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://127.0.0.1:8000/healthz'')"',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  frontend:
+    container_name: skl-frontend
+    build:
+      context: .
+      dockerfile: packages/frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://127.0.0.1:8000}
+        NEXT_PUBLIC_API_DOCS_URL: ${NEXT_PUBLIC_API_DOCS_URL:-}
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://127.0.0.1:8000}
+      NEXT_PUBLIC_API_DOCS_URL: ${NEXT_PUBLIC_API_DOCS_URL:-}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  skl_pg:
+  skl_data:

@@ -1,0 +1,12 @@
+{
+  "name": "@skl/backend",
+  "version": "0.0.1",
+  "description": "skl - Backend",
+  "scripts": {
+    "dev": "make dev",
+    "test": "make test",
+    "test:coverage": "make coverage",
+    "lint": "make lint",
+    "format": "make format"
+  }
+}
