@@ -1,0 +1,322 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.14.8"
+  NODE_VERSION: "26"
+  DATABASE_URL: postgresql+asyncpg://skl:skl@localhost:5432/skl
+  SKL_DATA_DIR: /tmp/skl-data
+  UV_PYTHON: "3.14.8"
+
+jobs:
+  backend:
+    name: Back-end
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: skl
+          POSTGRES_PASSWORD: skl
+          POSTGRES_DB: skl
+        options: >-
+          --health-cmd "pg_isready -U skl -d skl"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.2
+
+      - name: Sync backend dependencies
+        working-directory: ${{ github.workspace }}/packages/backend
+        run: uv sync --extra onnx
+
+      - name: Run ruff lint
+        working-directory: ${{ github.workspace }}/packages/backend
+        run: uv run ruff check src/
+
+      - name: Run ruff format check
+        working-directory: ${{ github.workspace }}/packages/backend
+        run: uv run ruff format --check src/
+
+      - name: Check the committed OpenAPI document
+        working-directory: ${{ github.workspace }}/packages/backend
+        run: uv run python scripts/export_openapi.py --check
+
+      - name: Start backend server
+        working-directory: ${{ github.workspace }}/packages/backend
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          skl_DATA_DIR: ${{ env.skl_DATA_DIR }}
+        run: uv run python -m uvicorn main:app --host 127.0.0.1 --port 8000 &
+        shell: bash
+
+      - name: Wait for backend to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/healthz > /dev/null 2>&1; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend failed to start"
+          exit 1
+        shell: bash
+
+      - name: Run backend tests
+        working-directory: ${{ github.workspace }}/packages/backend
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          skl_DATA_DIR: ${{ env.skl_DATA_DIR }}
+        run: uv run pytest tests/ -v
+
+  frontend:
+    name: Front-end
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6.1.0
+        with:
+          version: 12.15.0
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        working-directory: ${{ github.workspace }}/packages/frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Run frontend lint
+        working-directory: ${{ github.workspace }}/packages/frontend
+        run: pnpm run lint
+
+      - name: Run frontend typecheck
+        working-directory: ${{ github.workspace }}/packages/frontend
+        run: pnpm exec tsc --noEmit
+
+      - name: Run frontend unit tests
+        working-directory: ${{ github.workspace }}/packages/frontend
+        run: pnpm run test:coverage
+
+      - name: Build frontend
+        working-directory: ${{ github.workspace }}/packages/frontend
+        run: pnpm run build
+
+  e2e:
+    name: End-to-End
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: skl
+          POSTGRES_PASSWORD: skl
+          POSTGRES_DB: skl
+        options: >-
+          --health-cmd "pg_isready -U skl -d skl"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.2
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6.1.0
+        with:
+          version: 12.15.0
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Sync backend dependencies
+        working-directory: ${{ github.workspace }}/packages/backend
+        run: uv sync --extra onnx
+
+      - name: Install frontend dependencies
+        working-directory: ${{ github.workspace }}/packages/frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        working-directory: ${{ github.workspace }}/packages/frontend
+        run: pnpm exec playwright install --with-deps
+
+      - name: Start backend server
+        working-directory: ${{ github.workspace }}/packages/backend
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          skl_DATA_DIR: ${{ env.skl_DATA_DIR }}
+        run: uv run python -m uvicorn main:app --host 127.0.0.1 --port 8000 &
+        shell: bash
+
+      - name: Wait for backend to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/healthz > /dev/null 2>&1; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend failed to start"
+          exit 1
+        shell: bash
+
+      - name: Start frontend dev server
+        working-directory: ${{ github.workspace }}/packages/frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+        run: pnpm run dev &
+        shell: bash
+
+      - name: Wait for frontend to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000 > /dev/null 2>&1; then
+              echo "Frontend is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Frontend failed to start"
+          exit 1
+        shell: bash
+
+      - name: Run e2e tests
+        working-directory: ${{ github.workspace }}/packages/frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+        run: pnpm exec playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: playwright-report
+          path: ${{ github.workspace }}/packages/frontend/playwright-report/
+          retention-days: 7
+
+  cli:
+    name: CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        working-directory: ${{ github.workspace }}/packages/cli
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" pyinstaller pytest-cov ruff
+
+      - name: Run lint
+        working-directory: ${{ github.workspace }}/packages/cli
+        run: |
+          ruff check src tests
+
+      - name: Run tests
+        working-directory: ${{ github.workspace }}/packages/cli
+        run: |
+          pytest tests -v --cov=src/skl --cov-report=term-missing
+
+      - name: Build binary
+        working-directory: ${{ github.workspace }}/packages/cli
+        run: |
+          pyinstaller --onefile --name skl src/skl/pyinstaller_entry.py --distpath dist --workpath build --noconfirm
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: skl-linux-amd64
+          path: packages/cli/dist/skl
+          retention-days: 7
+
+  release-cli:
+    name: Release CLI (latest)
+    needs: [cli]
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Read release notes from CLI README.md
+        id: readme
+        working-directory: ${{ github.workspace }}/packages/cli
+        run: |
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          cat README.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Download CLI binary
+        uses: actions/download-artifact@v8.0.2
+        with:
+          name: skl-linux-amd64
+          path: dist
+
+      - name: Delete existing "cli-latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete cli-latest --yes --cleanup-tag || true
+          git push origin :refs/tags/cli-latest || true
+
+      - name: Create/Update "cli-latest" Release
+        uses: softprops/action-gh-release@v3.0.3
+        with:
+          tag_name: cli-latest
+          name: "skl CLI (latest)"
+          body: ${{ steps.readme.outputs.body }}
+          files: |
+            dist/skl
+          draft: false
+          prerelease: false
+          make_latest: true
