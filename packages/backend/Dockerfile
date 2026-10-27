@@ -7,7 +7,7 @@
 # See docs/11-deployment/local-development.md.
 
 # --- Build stage: resolve and install the locked virtualenv ----------------
-FROM python:3.14.8-slim AS builder
+FROM python:3.15.1-slim AS builder
 
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_PYTHON=3.14 \
@@ -25,7 +25,7 @@ COPY packages/backend/pyproject.toml packages/backend/uv.lock packages/backend/R
 RUN uv sync --frozen --no-dev --extra onnx
 
 # --- Runtime stage: copy the venv and application code --------------------
-FROM python:3.14.8-slim AS runtime
+FROM python:3.15.1-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

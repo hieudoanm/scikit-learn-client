@@ -3,7 +3,7 @@ name = "backend"
 version = "0.0.1"
 description = "scikit-learn-client training API"
 readme = "README.md"
-requires-python = "==3.14.8"
+requires-python = "==3.15.1"
 dependencies = [
     "fastapi==0.162.0",
     "uvicorn[standard]==0.54.0",
