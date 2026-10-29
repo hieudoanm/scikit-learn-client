@@ -2,7 +2,7 @@
   "name": "@skl/workspace",
   "version": "0.0.1",
   "description": "skl - scikit-learn-client",
-  "packageManager": "pnpm@12.15.0",
+  "packageManager": "pnpm@12.16.1",
   "scripts": {
     "dev": "turbo run dev",
     "lint": "turbo run lint",
