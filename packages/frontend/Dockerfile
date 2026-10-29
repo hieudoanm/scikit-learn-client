@@ -8,7 +8,7 @@
 # fall back to `${NEXT_PUBLIC_API_URL}/docs`.
 # See docs/11-deployment/local-development.md.
 
-FROM node:26.12.1-alpine AS base
+FROM node:26.13.0-alpine AS base
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
     NEXT_TELEMETRY_DISABLED=1 \
